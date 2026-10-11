@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String          @id @default(cuid())
+  name           String
+  email          String          @unique
+  passwordHash   String
+  avatar         String?
+  role           String          @default("USER") // USER or ADMIN
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  scans          Scan[]
+  reviews        ScanReview[]    // Reviews performed by this admin
+  preferences    UserPreference?
+}
+
+model Scan {
+  id               String            @id @default(cuid())
+  userId           String
+  type             String            // URL or EMAIL
+  originalInput    String
+  riskScore        Int
+  riskLevel        String            // SAFE, SUSPICIOUS, HIGH_RISK, CRITICAL
+  metadata         String            // JSON string
+  threatIndicators String            // JSON string (array of indicators)
+  recommendations  String            // JSON string (array of recommendations)
+  scamDna          String?           // JSON string (BharatShield Scam DNA)
+  scamCategory     String?           // India-specific scam category
+  scamNarrative    String?           // Human-readable scam explanation
+  audienceTarget   String?           // Targeted audience group
+  // Analyst approval workflow fields
+  approvalStatus   String            @default("AUTO_ANALYZED") // AUTO_ANALYZED, NEEDS_REVIEW, VERIFIED_THREAT, FALSE_POSITIVE, APPROVED_SAFE, ESCALATED
+  needsReview      Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews          ScanReview[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([riskLevel])
+  @@index([approvalStatus])
+  @@index([needsReview])
+}
+
+model ScanReview {
+  id                    String   @id @default(cuid())
+  scanId                String
+  reviewerId            String
+  decision              String   // VERIFIED_THREAT, FALSE_POSITIVE, APPROVED_SAFE, ESCALATED
+  notes                 String?
+  originalRiskScore     Int
+  finalClassification   String   // Final risk level after review
+  createdAt             DateTime @default(now())
+  scan                  Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  reviewer              User     @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([reviewerId])
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  theme                 String   @default("system")
+  studentSafetyMode     Boolean  @default(false)
+  emailNotifications    Boolean  @default(true)
+  scanAlerts            Boolean  @default(true)
+  weeklyReport          Boolean  @default(false)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

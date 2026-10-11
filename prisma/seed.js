@@ -1,0 +1,957 @@
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('🌱 Seeding PhishGuard AI database...');
+
+  // Clean existing data
+  await prisma.scanReview.deleteMany();
+  await prisma.scan.deleteMany();
+  await prisma.userPreference.deleteMany();
+  await prisma.user.deleteMany();
+
+  // Create demo user
+  const demoPasswordHash = await bcrypt.hash('Demo@123', 12);
+  const adminPasswordHash = await bcrypt.hash('Admin@123', 12);
+
+  const demoUser = await prisma.user.create({
+    data: {
+      name: 'Ansh Bhardwaj',
+      email: 'demo@phishguard.ai',
+      passwordHash: demoPasswordHash,
+      role: 'USER',
+      preferences: {
+        create: {
+          theme: 'system',
+          studentSafetyMode: true,
+          emailNotifications: true,
+          scanAlerts: true,
+        }
+      }
+    }
+  });
+
+  const adminUser = await prisma.user.create({
+    data: {
+      name: 'Security Analyst',
+      email: 'admin@phishguard.ai',
+      passwordHash: adminPasswordHash,
+      role: 'ADMIN',
+      preferences: {
+        create: {
+          theme: 'dark',
+          studentSafetyMode: false,
+          emailNotifications: true,
+          scanAlerts: true,
+          weeklyReport: true,
+        }
+      }
+    }
+  });
+
+  console.log('✅ Users created');
+
+  // Demo scan data with realistic phishing examples
+  const demoScans = [
+    // 1. Critical - PayPal phishing
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'http://paypa1-secure-login.verification-center.xyz/signin?ref=urgent&session=expired',
+      riskScore: 92,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        fullUrl: 'http://paypa1-secure-login.verification-center.xyz/signin?ref=urgent&session=expired',
+        domain: 'paypa1-secure-login.verification-center.xyz',
+        protocol: 'http',
+        path: '/signin',
+        queryParams: '?ref=urgent&session=expired',
+        urlLength: 82,
+        subdomainCount: 2,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: false,
+        tld: '.xyz',
+        isUrlShortener: false,
+        hasExcessiveHyphens: true,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: ['login', 'signin', 'secure', 'verification'],
+        brandImpersonation: 'PayPal',
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-impersonation', name: 'Brand Impersonation Detected', description: 'URL impersonates PayPal', severity: 'critical', score: 18, details: 'Found "paypa1" - typosquatting PayPal with number 1 replacing letter l.' },
+        { id: 'no-https', name: 'No HTTPS Encryption', description: 'No SSL encryption', severity: 'medium', score: 8, details: 'Protocol is "http" instead of "https".' },
+        { id: 'suspicious-tld', name: 'Suspicious Top-Level Domain', description: 'Uses .xyz TLD', severity: 'medium', score: 10, details: 'The TLD ".xyz" is commonly used in phishing.' },
+        { id: 'suspicious-keywords', name: 'Suspicious Keywords', description: 'Contains login/verify keywords', severity: 'high', score: 16, details: 'Found: login, signin, secure, verification.' },
+        { id: 'excessive-hyphens', name: 'Excessive Hyphens in Domain', description: 'Many hyphens in domain', severity: 'medium', score: 8, details: 'Found 4 hyphens in the domain.' },
+      ]),
+      recommendations: JSON.stringify([
+        'Do NOT visit this URL under any circumstances.',
+        'This is impersonating PayPal. Visit paypal.com directly for any account actions.',
+        'Block and report this link immediately.',
+        'Report to India Cyber Crime: 1930 or cybercrime.gov.in',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 90, details: ['Typosquatting PayPal brand name'] },
+        pressureTactic: { score: 70, details: ['URL contains urgency keywords: urgent'] },
+        targetedRequest: { score: 85, details: ['URL targets login credentials'] },
+        technicalDeception: { score: 75, details: ['No HTTPS', 'Suspicious TLD', 'Excessive hyphens'] },
+        audienceTargeting: { score: 60, details: ['Likely targeting: Banking Customers'], audience: 'Banking Customers' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This URL is impersonating PayPal using a typosquatted domain. It uses "paypa1" (with a number 1) to deceive users. The lack of HTTPS, suspicious .xyz TLD, and multiple phishing keywords make this extremely dangerous. Do not visit this link.',
+      audienceTarget: 'Banking Customers',
+      approvalStatus: 'VERIFIED_THREAT',
+      needsReview: false,
+      createdAt: daysAgo(0),
+    },
+    // 2. High Risk - Fake SBI KYC
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'kyc-update@sbi-onlinebanking.co.in',
+        subject: 'Urgent: Your SBI KYC Has Expired – Update Within 24 Hours',
+        body: 'Dear Valued Customer,\n\nYour SBI Internet Banking KYC verification has expired. Your account will be suspended within 24 hours if not updated.\n\nClick here to update your KYC: http://sbi-kyc-update.online/verify\n\nYou will need to provide:\n- Aadhaar Number\n- PAN Card Number\n- Account Number\n- Mobile Number linked to account\n- OTP verification\n\nFailure to comply will result in permanent account suspension.\n\nRegards,\nSBI Online Banking Team',
+      }),
+      riskScore: 82,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'kyc-update@sbi-onlinebanking.co.in',
+        senderDomain: 'sbi-onlinebanking.co.in',
+        subject: 'Urgent: Your SBI KYC Has Expired – Update Within 24 Hours',
+        bodyLength: 450,
+        hasLinks: true,
+        linkCount: 1,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'high',
+        credentialRequestDetected: true,
+        financialRequestDetected: false,
+        rewardClaimDetected: false,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-mismatch', name: 'Brand-Domain Mismatch', description: 'Claims to be SBI but uses non-official domain', severity: 'high', score: 15, details: 'Email claims to be from SBI but sender domain is sbi-onlinebanking.co.in.' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: 'Uses urgent threatening language', severity: 'high', score: 15, details: 'Detected urgency phrases: "urgent", "within 24 hours", "account will be suspended".' },
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Requests Aadhaar, PAN, OTP', severity: 'critical', score: 20, details: 'Requests Aadhaar Number, PAN Card, Account Number, and OTP.' },
+        { id: 'suspicious-urls', name: 'Suspicious URLs in Email Body', description: 'Contains phishing link', severity: 'high', score: 12, details: 'Found suspicious URL: sbi-kyc-update.online.' },
+        { id: 'generic-greeting', name: 'Generic Greeting Used', description: 'Uses "Dear Valued Customer"', severity: 'low', score: 5, details: 'Uses generic greeting instead of customer name.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a KYC phishing scam. SBI never sends KYC update links via email.',
+        'Do NOT click any links or share your Aadhaar, PAN, or OTP.',
+        'Report this email as phishing immediately.',
+        'If concerned about KYC, visit your nearest SBI branch directly.',
+        'Report to India Cyber Crime helpline: 1930 or cybercrime.gov.in',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 85, details: ['Impersonates SBI using non-official domain'] },
+        pressureTactic: { score: 90, details: ['24-hour deadline threat', '"Account suspension" warning'] },
+        targetedRequest: { score: 95, details: ['Requests Aadhaar, PAN, OTP, account number'] },
+        technicalDeception: { score: 70, details: ['Suspicious sender domain', 'Phishing URL in body'] },
+        audienceTargeting: { score: 80, details: ['Likely targeting: Banking Customers'], audience: 'Banking Customers' },
+      }),
+      scamCategory: 'KYC_SCAM',
+      scamNarrative: 'This email is a classic KYC update scam impersonating State Bank of India (SBI). It creates urgency with a 24-hour deadline, threatens account suspension, and requests highly sensitive information including Aadhaar, PAN, and OTP. SBI never requests KYC updates via email links.',
+      audienceTarget: 'Banking Customers',
+      approvalStatus: 'VERIFIED_THREAT',
+      needsReview: false,
+      createdAt: daysAgo(1),
+    },
+    // 3. High Risk - Fake internship
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'hr.recruitment@google-careers-india.com',
+        subject: 'Congratulations! You are selected for Google Summer Internship 2026',
+        body: 'Dear Student,\n\nCongratulations! Based on your college profile, you have been shortlisted for the Google Summer Internship Program 2026.\n\nStipend: ₹75,000/month\nDuration: 3 months\nLocation: Work from Home\n\nTo confirm your seat, please complete the registration process:\n1. Pay the registration fee of ₹2,499 via UPI\n2. Send your resume and Aadhaar copy\n3. Complete the online assessment\n\nPayment UPI ID: google.hr@paytm\n\nLast date for registration: Today\n\nPlacement registration ke liye ₹2,499 pay karein. Seats limited hain.\n\nBest Regards,\nGoogle India HR Team',
+      }),
+      riskScore: 88,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'hr.recruitment@google-careers-india.com',
+        senderDomain: 'google-careers-india.com',
+        subject: 'Congratulations! You are selected for Google Summer Internship 2026',
+        bodyLength: 580,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'high',
+        credentialRequestDetected: true,
+        financialRequestDetected: true,
+        rewardClaimDetected: true,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-mismatch', name: 'Brand-Domain Mismatch', description: 'Fake Google domain', severity: 'high', score: 15, details: 'Uses google-careers-india.com instead of google.com.' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'Asks for payment', severity: 'high', score: 15, details: 'Requests ₹2,499 "registration fee" via UPI.' },
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Asks for Aadhaar', severity: 'critical', score: 18, details: 'Requests Aadhaar copy along with payment.' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: 'Deadline pressure', severity: 'high', score: 12, details: '"Last date for registration: Today", "Seats limited".' },
+        { id: 'reward-scam', name: 'Reward or Prize Scam Language', description: 'Uses congratulations', severity: 'high', score: 10, details: '"Congratulations! You are selected" - classic bait language.' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Mixed language manipulation', severity: 'high', score: 8, details: 'Contains Hinglish phrases typical of Indian scams.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a fake internship scam. Google never charges registration fees.',
+        'Legitimate companies do not ask candidates to pay fees for internships.',
+        'Never share Aadhaar copies with unverified sources.',
+        'Verify through Google\'s official careers page: careers.google.com',
+        'Report this to your college placement cell immediately.',
+        'Report financial fraud: 1930 or cybercrime.gov.in',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 90, details: ['Fake Google domain', 'Impersonates Google HR'] },
+        pressureTactic: { score: 85, details: ['"Last date today"', '"Seats limited"'] },
+        targetedRequest: { score: 90, details: ['Requests payment ₹2,499', 'Requests Aadhaar document'] },
+        technicalDeception: { score: 50, details: ['Non-official domain name'] },
+        audienceTargeting: { score: 95, details: ['Directly targets college students'], audience: 'College Students' },
+      }),
+      scamCategory: 'FAKE_INTERNSHIP',
+      scamNarrative: 'This is a fake internship scam targeting college students. It impersonates Google\'s HR department using a non-official domain, offers an attractive stipend to lure victims, then demands a "registration fee" of ₹2,499 and personal documents including Aadhaar. Legitimate employers never charge candidates money for job offers or internships.',
+      audienceTarget: 'College Students',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(1),
+    },
+    // 4. Suspicious - URL shortener
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'https://bit.ly/3xR9kPm',
+      riskScore: 42,
+      riskLevel: 'SUSPICIOUS',
+      metadata: JSON.stringify({
+        fullUrl: 'https://bit.ly/3xR9kPm',
+        domain: 'bit.ly',
+        protocol: 'https',
+        path: '/3xR9kPm',
+        queryParams: '',
+        urlLength: 23,
+        subdomainCount: 0,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: true,
+        tld: '.ly',
+        isUrlShortener: true,
+        hasExcessiveHyphens: false,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: [],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'url-shortener', name: 'URL Shortener Detected', description: 'Uses bit.ly shortener', severity: 'medium', score: 12, details: 'Shortened URL hides the actual destination.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a shortened URL - the actual destination is hidden.',
+        'Use a URL preview service to check where it leads before clicking.',
+        'Be cautious if you received this link from an unknown sender.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 20, details: ['Destination hidden behind URL shortener'] },
+        pressureTactic: { score: 0, details: [] },
+        targetedRequest: { score: 0, details: [] },
+        technicalDeception: { score: 40, details: ['Uses URL shortener to hide destination'] },
+        audienceTargeting: { score: 20, details: ['Likely targeting: General Users'], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This URL uses a link shortening service (bit.ly) which hides the actual destination. While URL shorteners have legitimate uses, they are also commonly used to disguise phishing links. Verify the destination before clicking.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(2),
+    },
+    // 5. Safe - legitimate URL
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'https://www.google.com/search?q=phishing+awareness',
+      riskScore: 0,
+      riskLevel: 'SAFE',
+      metadata: JSON.stringify({
+        fullUrl: 'https://www.google.com/search?q=phishing+awareness',
+        domain: 'www.google.com',
+        protocol: 'https',
+        path: '/search',
+        queryParams: '?q=phishing+awareness',
+        urlLength: 50,
+        subdomainCount: 1,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: true,
+        tld: '.com',
+        isUrlShortener: false,
+        hasExcessiveHyphens: false,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: [],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([]),
+      recommendations: JSON.stringify([
+        'This URL appears safe. It belongs to a well-known domain.',
+        'Always verify the padlock icon in your browser address bar.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 0, details: [] },
+        pressureTactic: { score: 0, details: [] },
+        targetedRequest: { score: 0, details: [] },
+        technicalDeception: { score: 0, details: [] },
+        audienceTargeting: { score: 0, details: [], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This URL appears safe. It belongs to Google, a well-known and trusted domain, uses HTTPS encryption, and shows no phishing indicators.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(2),
+    },
+    // 6. High Risk - Digital arrest scam
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'cybercell.delhi@gov-notice.in',
+        subject: 'Legal Notice: FIR Filed Against Your Aadhaar Number',
+        body: 'URGENT LEGAL NOTICE\n\nThis is to inform you that an FIR has been filed against your Aadhaar number in connection with a money laundering case. Your bank accounts will be frozen within 48 hours.\n\nTo avoid digital arrest and legal proceedings, you must verify your identity immediately.\n\nContact Officer: Inspector R.K. Sharma\nCase Reference: CBI/ML/2026/4892\n\nFailure to respond will result in:\n1. Digital arrest\n2. Bank account freeze\n3. Passport cancellation\n\nAapka Aadhaar number se FIR darj hui hai. Turant respond karein nahi to giraftaari ho jayegi.\n\nClick here to verify: http://gov-notice.in/verify-identity\n\nThis is a confidential government communication.',
+      }),
+      riskScore: 91,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'cybercell.delhi@gov-notice.in',
+        senderDomain: 'gov-notice.in',
+        subject: 'Legal Notice: FIR Filed Against Your Aadhaar Number',
+        bodyLength: 680,
+        hasLinks: true,
+        linkCount: 1,
+        hasAttachmentMention: false,
+        hasGenericGreeting: false,
+        urgencyLevel: 'high',
+        credentialRequestDetected: true,
+        financialRequestDetected: false,
+        rewardClaimDetected: false,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: 'Extreme fear tactics', severity: 'critical', score: 18, details: 'Uses threats of arrest, account freeze, and passport cancellation.' },
+        { id: 'brand-mismatch', name: 'Brand-Domain Mismatch', description: 'Fake government domain', severity: 'high', score: 15, details: 'Uses gov-notice.in instead of official .gov.in domain.' },
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Identity verification trap', severity: 'critical', score: 18, details: 'Requests identity verification through suspicious link.' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hindi fear tactics', severity: 'high', score: 12, details: 'Contains threatening Hinglish phrases about arrest.' },
+        { id: 'suspicious-urls', name: 'Suspicious URLs in Email Body', description: 'Phishing verification link', severity: 'high', score: 12, details: 'Contains suspicious URL: gov-notice.in/verify-identity.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a DIGITAL ARREST SCAM. Government agencies never threaten arrest via email.',
+        'The CBI/Police do not send legal notices via email or WhatsApp.',
+        'Do NOT click any links or call any numbers mentioned in this email.',
+        'No legitimate "digital arrest" exists in Indian law.',
+        'Report immediately: 1930 or cybercrime.gov.in',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 85, details: ['Fake government/police identity', 'Non-official domain'] },
+        pressureTactic: { score: 95, details: ['"Digital arrest" threat', '"Bank account freeze" threat', '"Passport cancellation" threat', '48-hour deadline'] },
+        targetedRequest: { score: 70, details: ['Identity verification via phishing link'] },
+        technicalDeception: { score: 65, details: ['Fake government domain', 'Phishing URL'] },
+        audienceTargeting: { score: 70, details: ['Targets general public through fear'], audience: 'General Users' },
+      }),
+      scamCategory: 'DIGITAL_ARREST',
+      scamNarrative: 'This is a digital arrest scam — one of the most prevalent scams in India. It impersonates law enforcement, threatens arrest and account freezes, and uses fear to force immediate compliance. There is no legal concept of "digital arrest" in India. Government agencies never send legal notices via email or demand immediate online verification.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'VERIFIED_THREAT',
+      needsReview: false,
+      createdAt: daysAgo(2),
+    },
+    // 7. Suspicious - UPI scam
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'refund@online-shopping-refund.com',
+        subject: 'Your order refund of ₹1,299 is pending - Accept now',
+        body: 'Dear Customer,\n\nYour refund of ₹1,299 for order #FLK8294752 is pending. To receive your refund immediately:\n\n1. Open your UPI app (PhonePe/GPay/Paytm)\n2. Accept the collect request from: refund.process@ybl\n3. Enter your UPI PIN to confirm the refund\n\nRefund milega - UPI collect request accept karo aur PIN daalo.\n\nIf not claimed within 24 hours, the refund will be forfeited.\n\nCustomer Support Team',
+      }),
+      riskScore: 78,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'refund@online-shopping-refund.com',
+        senderDomain: 'online-shopping-refund.com',
+        subject: 'Your order refund of ₹1,299 is pending - Accept now',
+        bodyLength: 420,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'medium',
+        credentialRequestDetected: true,
+        financialRequestDetected: true,
+        rewardClaimDetected: true,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Requests UPI PIN', severity: 'critical', score: 18, details: 'Asks user to enter UPI PIN - you never need to enter PIN to receive money.' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'UPI collect request trap', severity: 'high', score: 12, details: 'Instructs user to accept a UPI collect request for "refund".' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: '24-hour deadline', severity: 'medium', score: 10, details: '"If not claimed within 24 hours, the refund will be forfeited."' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hinglish UPI scam phrases', severity: 'high', score: 12, details: '"Refund milega - UPI collect request accept karo aur PIN daalo."' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a UPI collect request scam. You NEVER need to enter a UPI PIN to receive money.',
+        'Refunds are always credited directly to your account — no action needed.',
+        'Do not accept any UPI collect requests from unknown sources.',
+        'Verify refund status on the official shopping platform.',
+        'Report to India Cyber Crime: 1930',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 60, details: ['Fake refund department'] },
+        pressureTactic: { score: 65, details: ['"24 hours" refund forfeiture threat'] },
+        targetedRequest: { score: 95, details: ['Requests UPI PIN entry', 'UPI collect request acceptance'] },
+        technicalDeception: { score: 40, details: ['Non-official domain'] },
+        audienceTargeting: { score: 75, details: ['Targets online shoppers expecting refunds'], audience: 'Online Shoppers' },
+      }),
+      scamCategory: 'UPI_SCAM',
+      scamNarrative: 'This is a UPI collect request scam targeting online shoppers. The scammer creates a fake refund scenario and tricks victims into entering their UPI PIN. In legitimate UPI transactions, you never need to enter a PIN to receive money. Accepting a collect request and entering your PIN sends money to the scammer.',
+      audienceTarget: 'Online Shoppers',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(3),
+    },
+    // 8. Safe - legitimate email
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'noreply@github.com',
+        subject: 'Your repository has a new pull request',
+        body: 'Hi Ansh,\n\nA new pull request has been opened on your repository phishguard-ai.\n\nPR #42: Update README with setup instructions\nOpened by: contributor123\n\nView the pull request: https://github.com/ansh/phishguard-ai/pull/42\n\nYou can review and merge this pull request on GitHub.\n\nThanks,\nThe GitHub Team',
+      }),
+      riskScore: 5,
+      riskLevel: 'SAFE',
+      metadata: JSON.stringify({
+        senderEmail: 'noreply@github.com',
+        senderDomain: 'github.com',
+        subject: 'Your repository has a new pull request',
+        bodyLength: 310,
+        hasLinks: true,
+        linkCount: 1,
+        hasAttachmentMention: false,
+        hasGenericGreeting: false,
+        urgencyLevel: 'none',
+        credentialRequestDetected: false,
+        financialRequestDetected: false,
+        rewardClaimDetected: false,
+      }),
+      threatIndicators: JSON.stringify([]),
+      recommendations: JSON.stringify([
+        'This email appears to be a legitimate GitHub notification.',
+        'The sender domain matches GitHub and the content is consistent with their notification style.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 0, details: [] },
+        pressureTactic: { score: 0, details: [] },
+        targetedRequest: { score: 0, details: [] },
+        technicalDeception: { score: 0, details: [] },
+        audienceTargeting: { score: 0, details: [], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This email appears to be a legitimate notification from GitHub. The sender domain matches, the content is consistent with typical GitHub notifications, and there are no phishing indicators detected.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(3),
+    },
+    // 9. High Risk - IP address URL
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'http://192.168.45.123/login/secure/update-account.php?user=verify&token=abc123',
+      riskScore: 68,
+      riskLevel: 'HIGH_RISK',
+      metadata: JSON.stringify({
+        fullUrl: 'http://192.168.45.123/login/secure/update-account.php?user=verify&token=abc123',
+        domain: '192.168.45.123',
+        protocol: 'http',
+        path: '/login/secure/update-account.php',
+        queryParams: '?user=verify&token=abc123',
+        urlLength: 80,
+        subdomainCount: 0,
+        hasIPAddress: true,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: false,
+        tld: '123',
+        isUrlShortener: false,
+        hasExcessiveHyphens: false,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: ['login', 'secure', 'update', 'account', 'verify'],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'ip-address', name: 'IP Address URL', description: 'Uses IP instead of domain', severity: 'high', score: 20, details: 'URL points to IP 192.168.45.123 instead of a domain name.' },
+        { id: 'no-https', name: 'No HTTPS Encryption', description: 'No SSL', severity: 'medium', score: 8, details: 'Protocol is "http" instead of "https".' },
+        { id: 'suspicious-keywords', name: 'Suspicious Keywords', description: 'Multiple phishing keywords', severity: 'high', score: 16, details: 'Found: login, secure, update, account, verify.' },
+        { id: 'long-url', name: 'Excessive URL Length', description: 'Long URL', severity: 'medium', score: 6, details: 'URL is 80 characters long.' },
+      ]),
+      recommendations: JSON.stringify([
+        'Do not click this link. IP-based URLs are commonly used in phishing.',
+        'Legitimate websites use domain names, not IP addresses.',
+        'The URL contains multiple suspicious keywords targeting login credentials.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 70, details: ['IP address hides real identity'] },
+        pressureTactic: { score: 30, details: ['URL suggests urgency with "update" keyword'] },
+        targetedRequest: { score: 80, details: ['Targets login credentials and account info'] },
+        technicalDeception: { score: 75, details: ['IP-based URL', 'No HTTPS', 'Long URL'] },
+        audienceTargeting: { score: 50, details: ['Likely targeting: General Users'], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This URL uses an IP address instead of a domain name, which is a strong phishing indicator. Combined with no HTTPS encryption and multiple suspicious keywords (login, secure, update, account, verify), this is likely a credential theft attempt.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(3),
+    },
+    // 10. Suspicious - Scholarship scam
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'scholarship@national-education-fund.org',
+        subject: 'Congratulations! ₹50,000 Scholarship Approved for You',
+        body: 'Dear Student,\n\nBadhai ho! Aapki scholarship approve ho gayi hai.\n\nNational Education Fund has approved a scholarship of ₹50,000 for your education. To claim this scholarship:\n\n1. Fill the verification form\n2. Submit your college ID and fee receipt\n3. Pay a one-time processing fee of ₹599\n\nScholarship approve karne ke liye details verify karein aur processing fee pay karein.\n\nThis offer is valid for 48 hours only.\n\nScholarship Cell\nNational Education Fund',
+      }),
+      riskScore: 72,
+      riskLevel: 'HIGH_RISK',
+      metadata: JSON.stringify({
+        senderEmail: 'scholarship@national-education-fund.org',
+        senderDomain: 'national-education-fund.org',
+        subject: 'Congratulations! ₹50,000 Scholarship Approved for You',
+        bodyLength: 410,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'medium',
+        credentialRequestDetected: true,
+        financialRequestDetected: true,
+        rewardClaimDetected: true,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'reward-scam', name: 'Reward or Prize Scam Language', description: 'Unsolicited scholarship approval', severity: 'high', score: 12, details: '"Congratulations! Scholarship Approved" - unsolicited prize language.' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'Processing fee demand', severity: 'high', score: 15, details: 'Requests ₹599 "processing fee" to claim scholarship.' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: '48-hour deadline', severity: 'medium', score: 10, details: '"This offer is valid for 48 hours only."' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hinglish manipulation', severity: 'high', score: 12, details: '"Scholarship approve karne ke liye details verify karein."' },
+        { id: 'generic-greeting', name: 'Generic Greeting Used', description: 'Uses "Dear Student"', severity: 'low', score: 5, details: 'Generic greeting instead of student name.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is likely a fake scholarship scam. Legitimate scholarships never charge processing fees.',
+        'Verify any scholarship through your college\'s official scholarship cell.',
+        'Check the National Scholarship Portal (scholarships.gov.in) for legitimate schemes.',
+        'Never pay money to receive a scholarship or grant.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 65, details: ['Fake education fund organization'] },
+        pressureTactic: { score: 60, details: ['48-hour deadline'] },
+        targetedRequest: { score: 75, details: ['Requests processing fee', 'Requests personal documents'] },
+        technicalDeception: { score: 30, details: ['Unofficial domain'] },
+        audienceTargeting: { score: 95, details: ['Specifically targets college students'], audience: 'College Students' },
+      }),
+      scamCategory: 'FAKE_SCHOLARSHIP',
+      scamNarrative: 'This is a fake scholarship scam targeting college students. It creates excitement with an approved ₹50,000 scholarship, then demands a "processing fee" of ₹599. Legitimate scholarships from government or recognized organizations never charge fees to students. Always verify through official portals like scholarships.gov.in.',
+      audienceTarget: 'College Students',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(4),
+    },
+    // 11. Suspicious - Electricity scam
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'http://electricity-bill-payment.co/pay-now?meter=DL28394&amount=4500&due=today',
+      riskScore: 55,
+      riskLevel: 'HIGH_RISK',
+      metadata: JSON.stringify({
+        fullUrl: 'http://electricity-bill-payment.co/pay-now?meter=DL28394&amount=4500&due=today',
+        domain: 'electricity-bill-payment.co',
+        protocol: 'http',
+        path: '/pay-now',
+        queryParams: '?meter=DL28394&amount=4500&due=today',
+        urlLength: 77,
+        subdomainCount: 0,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: false,
+        tld: '.co',
+        isUrlShortener: false,
+        hasExcessiveHyphens: true,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: ['pay', 'payment'],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'no-https', name: 'No HTTPS Encryption', description: 'No SSL', severity: 'medium', score: 8, details: 'No HTTPS on a payment page.' },
+        { id: 'excessive-hyphens', name: 'Excessive Hyphens in Domain', description: 'Hyphenated domain', severity: 'medium', score: 8, details: '3 hyphens in domain - designed to look official.' },
+        { id: 'suspicious-keywords', name: 'Suspicious Keywords', description: 'Payment keywords', severity: 'medium', score: 8, details: 'Found: pay, payment.' },
+        { id: 'long-url', name: 'Excessive URL Length', description: 'Long URL', severity: 'medium', score: 6, details: 'URL is 77 characters.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This appears to be a fake electricity bill payment page.',
+        'Always pay electricity bills through official apps or utility company websites.',
+        'Verify your bill amount through your electricity provider\'s official channels.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 55, details: ['Fake electricity bill payment portal'] },
+        pressureTactic: { score: 50, details: ['Implies immediate payment due ("today")'] },
+        targetedRequest: { score: 65, details: ['Targets payment information'] },
+        technicalDeception: { score: 55, details: ['No HTTPS', 'Hyphenated domain'] },
+        audienceTargeting: { score: 50, details: ['Targets general utility bill payers'], audience: 'General Users' },
+      }),
+      scamCategory: 'ELECTRICITY_SCAM',
+      scamNarrative: 'This URL appears to be a fake electricity bill payment page. It lacks HTTPS encryption on a payment page, uses a hyphenated domain designed to look official, and includes urgency in the URL parameters. Always pay utility bills through official channels.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(4),
+    },
+    // 12. Safe - Amazon
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'https://www.amazon.in/dp/B09V3KXJPB',
+      riskScore: 0,
+      riskLevel: 'SAFE',
+      metadata: JSON.stringify({
+        fullUrl: 'https://www.amazon.in/dp/B09V3KXJPB',
+        domain: 'www.amazon.in',
+        protocol: 'https',
+        path: '/dp/B09V3KXJPB',
+        queryParams: '',
+        urlLength: 37,
+        subdomainCount: 1,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: true,
+        tld: '.in',
+        isUrlShortener: false,
+        hasExcessiveHyphens: false,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: [],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([]),
+      recommendations: JSON.stringify([
+        'This URL appears to be a legitimate Amazon India product page.',
+        'The domain amazon.in is verified and uses HTTPS encryption.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 0, details: [] },
+        pressureTactic: { score: 0, details: [] },
+        targetedRequest: { score: 0, details: [] },
+        technicalDeception: { score: 0, details: [] },
+        audienceTargeting: { score: 0, details: [], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This is a legitimate Amazon India URL. It uses HTTPS, has a verified domain, and shows no phishing indicators.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(5),
+    },
+    // 13. Suspicious - Courier scam
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'delivery@india-post-tracking.com',
+        subject: 'Your parcel is held at customs - Pay ₹299 for clearance',
+        body: 'Dear Recipient,\n\nYour international parcel (Tracking: EP429381572IN) has been held at customs clearance.\n\nCustoms duty of ₹299 must be paid within 24 hours or the parcel will be returned to sender.\n\nAapka parcel customs mein atka hai. ₹299 customs duty pay karein.\n\nPay via UPI: customs.clearance@ybl\n\nIndia Post Delivery Services',
+      }),
+      riskScore: 65,
+      riskLevel: 'HIGH_RISK',
+      metadata: JSON.stringify({
+        senderEmail: 'delivery@india-post-tracking.com',
+        senderDomain: 'india-post-tracking.com',
+        subject: 'Your parcel is held at customs - Pay ₹299 for clearance',
+        bodyLength: 350,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'high',
+        credentialRequestDetected: false,
+        financialRequestDetected: true,
+        rewardClaimDetected: false,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-mismatch', name: 'Brand-Domain Mismatch', description: 'Fake India Post domain', severity: 'high', score: 15, details: 'Uses india-post-tracking.com instead of indiapost.gov.in.' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'UPI payment demand', severity: 'high', score: 12, details: 'Requests ₹299 via UPI for "customs clearance".' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: '24-hour deadline', severity: 'medium', score: 10, details: '"Must be paid within 24 hours."' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hinglish scam phrases', severity: 'high', score: 8, details: '"Aapka parcel customs mein atka hai."' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a courier/customs scam. India Post uses indiapost.gov.in for official communications.',
+        'Customs duty is never collected via UPI to personal IDs.',
+        'Track parcels only on the official India Post website.',
+        'Report suspicious messages to 1930.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 75, details: ['Impersonates India Post'] },
+        pressureTactic: { score: 70, details: ['24-hour deadline', 'Parcel return threat'] },
+        targetedRequest: { score: 60, details: ['Requests UPI payment'] },
+        technicalDeception: { score: 45, details: ['Fake domain'] },
+        audienceTargeting: { score: 60, details: ['Targets online shoppers'], audience: 'Online Shoppers' },
+      }),
+      scamCategory: 'COURIER_SCAM',
+      scamNarrative: 'This is a courier delivery scam impersonating India Post. The scammer claims a parcel is held at customs and demands immediate payment via UPI. India Post never collects customs duty through UPI personal IDs. Always verify parcel status on the official India Post website.',
+      audienceTarget: 'Online Shoppers',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(5),
+    },
+    // 14. High Risk - Fake recruiter
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'careers@tcs-recruitment-2026.com',
+        subject: 'TCS Job Offer - ₹5.5 LPA - Immediate Joining',
+        body: 'Dear Candidate,\n\nBased on your profile, TCS has shortlisted you for the position of Software Developer.\n\nPackage: ₹5.5 LPA\nJoining: Immediate\nWork Mode: Remote\n\nTo proceed with your offer letter:\n1. Pay security deposit of ₹3,999\n2. Submit your resume, Aadhaar, and PAN copy\n3. Complete online assessment\n\nResume bhejo aur registration fee bharo. Work from home opportunity hai.\n\nDeadline: 48 hours\n\nHR Department\nTCS Recruitment Cell',
+      }),
+      riskScore: 80,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'careers@tcs-recruitment-2026.com',
+        senderDomain: 'tcs-recruitment-2026.com',
+        subject: 'TCS Job Offer - ₹5.5 LPA - Immediate Joining',
+        bodyLength: 420,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: true,
+        urgencyLevel: 'medium',
+        credentialRequestDetected: true,
+        financialRequestDetected: true,
+        rewardClaimDetected: false,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-mismatch', name: 'Brand-Domain Mismatch', description: 'Fake TCS domain', severity: 'high', score: 15, details: 'Uses tcs-recruitment-2026.com instead of tcs.com.' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'Security deposit demand', severity: 'high', score: 15, details: 'Demands ₹3,999 "security deposit".' },
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Requests Aadhaar and PAN', severity: 'critical', score: 16, details: 'Asks for Aadhaar and PAN copies upfront.' },
+        { id: 'urgency-language', name: 'Urgency and Pressure Language', description: '48-hour deadline', severity: 'medium', score: 8, details: '"Deadline: 48 hours".' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hinglish job scam', severity: 'high', score: 8, details: '"Resume bhejo aur registration fee bharo."' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a fake job offer scam impersonating TCS.',
+        'TCS and other legitimate IT companies never charge security deposits.',
+        'Verify job offers only through tcs.com official careers page.',
+        'Never share Aadhaar/PAN copies with unverified recruiters.',
+        'Report to your college placement cell and cybercrime.gov.in.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 85, details: ['Impersonates TCS recruitment'] },
+        pressureTactic: { score: 60, details: ['48-hour deadline', '"Immediate joining" urgency'] },
+        targetedRequest: { score: 90, details: ['₹3,999 security deposit', 'Aadhaar and PAN copies'] },
+        technicalDeception: { score: 40, details: ['Fake recruitment domain'] },
+        audienceTargeting: { score: 90, details: ['Targets job-seeking students and freshers'], audience: 'Job Seekers' },
+      }),
+      scamCategory: 'FAKE_RECRUITER',
+      scamNarrative: 'This is a fake job offer scam impersonating TCS. The scammer uses a non-official domain, promises an attractive salary package, and then demands a "security deposit" along with sensitive documents. No legitimate company charges candidates money for job offers.',
+      audienceTarget: 'Job Seekers',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(5),
+    },
+    // 15. Safe - Stack Overflow
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'https://stackoverflow.com/questions/12345/how-to-detect-phishing',
+      riskScore: 0,
+      riskLevel: 'SAFE',
+      metadata: JSON.stringify({
+        fullUrl: 'https://stackoverflow.com/questions/12345/how-to-detect-phishing',
+        domain: 'stackoverflow.com',
+        protocol: 'https',
+        path: '/questions/12345/how-to-detect-phishing',
+        queryParams: '',
+        urlLength: 62,
+        subdomainCount: 0,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: true,
+        tld: '.com',
+        isUrlShortener: false,
+        hasExcessiveHyphens: false,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: [],
+        brandImpersonation: null,
+      }),
+      threatIndicators: JSON.stringify([]),
+      recommendations: JSON.stringify([
+        'This URL appears safe. Stack Overflow is a well-known developer Q&A platform.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 0, details: [] },
+        pressureTactic: { score: 0, details: [] },
+        targetedRequest: { score: 0, details: [] },
+        technicalDeception: { score: 0, details: [] },
+        audienceTargeting: { score: 0, details: [], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This is a legitimate Stack Overflow URL. It uses HTTPS, belongs to a well-known platform, and contains no phishing indicators.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'AUTO_ANALYZED',
+      needsReview: false,
+      createdAt: daysAgo(6),
+    },
+    // 16. Suspicious - Lottery scam
+    {
+      userId: demoUser.id,
+      type: 'EMAIL',
+      originalInput: JSON.stringify({
+        sender: 'lottery@international-prize-board.com',
+        subject: 'You Won ₹25,00,000 in International Lucky Draw!',
+        body: 'CONGRATULATIONS!!!\n\nBadhai ho! Aapne International Lucky Draw mein ₹25,00,000 jeeta hai!\n\nYour ticket number: ILD-2026-98472\nPrize amount: ₹25,00,000\n\nTo claim your prize:\n1. Send your full name, address, and bank details\n2. Pay the processing fee of ₹4,999 via UPI\n3. Prize will be transferred within 24 hours\n\nLottery jeeta hai aapne! Claim karo jaldi!\n\nDr. James Wilson\nInternational Prize Board',
+      }),
+      riskScore: 85,
+      riskLevel: 'CRITICAL',
+      metadata: JSON.stringify({
+        senderEmail: 'lottery@international-prize-board.com',
+        senderDomain: 'international-prize-board.com',
+        subject: 'You Won ₹25,00,000 in International Lucky Draw!',
+        bodyLength: 420,
+        hasLinks: false,
+        linkCount: 0,
+        hasAttachmentMention: false,
+        hasGenericGreeting: false,
+        urgencyLevel: 'medium',
+        credentialRequestDetected: true,
+        financialRequestDetected: true,
+        rewardClaimDetected: true,
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'reward-scam', name: 'Reward or Prize Scam Language', description: 'Fake lottery win', severity: 'critical', score: 15, details: 'Claims user won ₹25,00,000 in an "International Lucky Draw".' },
+        { id: 'financial-request', name: 'Financial Request Detected', description: 'Processing fee', severity: 'high', score: 15, details: 'Requests ₹4,999 "processing fee" to claim prize.' },
+        { id: 'credential-request', name: 'Credential or Sensitive Data Request', description: 'Asks for bank details', severity: 'critical', score: 18, details: 'Requests full name, address, and bank details.' },
+        { id: 'hinglish-phishing', name: 'Hinglish Phishing Phrases Detected', description: 'Hinglish lottery scam', severity: 'high', score: 10, details: '"Lottery jeeta hai aapne! Claim karo jaldi!"' },
+      ]),
+      recommendations: JSON.stringify([
+        'This is a lottery scam. You cannot win a lottery you never entered.',
+        'Never pay a "processing fee" to claim any prize.',
+        'Never share bank details with unknown senders.',
+        'Report to cybercrime.gov.in immediately.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 70, details: ['Fake "International Prize Board" organization'] },
+        pressureTactic: { score: 55, details: ['Claims prize will transfer in 24 hours'] },
+        targetedRequest: { score: 85, details: ['Requests bank details', 'Requests ₹4,999 payment'] },
+        technicalDeception: { score: 30, details: ['Unofficial domain'] },
+        audienceTargeting: { score: 50, details: ['Targets general users with greed appeal'], audience: 'General Users' },
+      }),
+      scamCategory: 'LOTTERY_REWARD',
+      scamNarrative: 'This is a classic lottery/prize scam. The scammer claims you won ₹25,00,000 in a draw you never entered, then asks for a "processing fee" and bank details. You cannot win a lottery you never participated in. This is designed to steal money and banking information.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'VERIFIED_THREAT',
+      needsReview: false,
+      createdAt: daysAgo(6),
+    },
+    // 17. Suspicious URL - needs review
+    {
+      userId: demoUser.id,
+      type: 'URL',
+      originalInput: 'https://login-microsft-365.com/auth/signin?redirect=dashboard',
+      riskScore: 62,
+      riskLevel: 'HIGH_RISK',
+      metadata: JSON.stringify({
+        fullUrl: 'https://login-microsft-365.com/auth/signin?redirect=dashboard',
+        domain: 'login-microsft-365.com',
+        protocol: 'https',
+        path: '/auth/signin',
+        queryParams: '?redirect=dashboard',
+        urlLength: 60,
+        subdomainCount: 0,
+        hasIPAddress: false,
+        hasSuspiciousChars: false,
+        hasAtSymbol: false,
+        isHTTPS: true,
+        tld: '.com',
+        isUrlShortener: false,
+        hasExcessiveHyphens: true,
+        hasEncodedChars: false,
+        suspiciousKeywordsFound: ['login', 'signin'],
+        brandImpersonation: 'Microsoft',
+      }),
+      threatIndicators: JSON.stringify([
+        { id: 'brand-impersonation', name: 'Brand Impersonation Detected', description: 'Misspelled Microsoft domain', severity: 'critical', score: 18, details: 'Found "microsft" - typosquatting Microsoft with missing "o".' },
+        { id: 'suspicious-keywords', name: 'Suspicious Keywords', description: 'Login keywords', severity: 'medium', score: 8, details: 'Found: login, signin.' },
+        { id: 'excessive-hyphens', name: 'Excessive Hyphens in Domain', description: 'Hyphenated domain', severity: 'medium', score: 8, details: 'Domain uses hyphens to mimic Microsoft login.' },
+      ]),
+      recommendations: JSON.stringify([
+        'This domain misspells "Microsoft" as "microsft" - likely phishing.',
+        'Always access Microsoft 365 through login.microsoftonline.com directly.',
+        'Do not enter any credentials on this page.',
+      ]),
+      scamDna: JSON.stringify({
+        identityDeception: { score: 85, details: ['Typosquats Microsoft'] },
+        pressureTactic: { score: 10, details: [] },
+        targetedRequest: { score: 70, details: ['Targets Microsoft 365 login credentials'] },
+        technicalDeception: { score: 50, details: ['Hyphenated domain mimicking Microsoft'] },
+        audienceTargeting: { score: 60, details: ['Targets Microsoft/Office 365 users'], audience: 'General Users' },
+      }),
+      scamCategory: null,
+      scamNarrative: 'This URL impersonates Microsoft by misspelling the domain as "microsft" (missing the "o"). It appears designed to steal Microsoft 365 login credentials. Always access Microsoft services through their official domain.',
+      audienceTarget: 'General Users',
+      approvalStatus: 'NEEDS_REVIEW',
+      needsReview: true,
+      createdAt: daysAgo(6),
+    },
+  ];
+
+  for (const scan of demoScans) {
+    await prisma.scan.create({ data: scan });
+  }
+
+  console.log(`✅ ${demoScans.length} demo scans created`);
+
+  // Create some demo reviews
+  const verifiedScans = await prisma.scan.findMany({
+    where: { approvalStatus: 'VERIFIED_THREAT' }
+  });
+
+  for (const scan of verifiedScans) {
+    await prisma.scanReview.create({
+      data: {
+        scanId: scan.id,
+        reviewerId: adminUser.id,
+        decision: 'VERIFIED_THREAT',
+        notes: 'Confirmed as phishing threat after manual analysis. Pattern matches known campaign.',
+        originalRiskScore: scan.riskScore,
+        finalClassification: scan.riskLevel,
+      }
+    });
+  }
+
+  console.log('✅ Demo reviews created');
+  console.log('\n🎉 Database seeded successfully!');
+  console.log('\n📋 Demo Credentials:');
+  console.log('   User:  demo@phishguard.ai / Demo@123');
+  console.log('   Admin: admin@phishguard.ai / Admin@123');
+}
+
+function daysAgo(days) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  date.setHours(Math.floor(Math.random() * 12) + 8);
+  date.setMinutes(Math.floor(Math.random() * 60));
+  return date;
+}
+
+main()
+  .catch((e) => {
+    console.error('Seed error:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
