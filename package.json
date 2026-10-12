@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "benchmark": "tsx scripts/benchmark-accuracy.ts"
+    "benchmark": "tsx scripts/benchmark-accuracy.ts",
+    "seed": "node prisma/seed.js",
+    "postinstall": "node scripts/prepare-prisma.js && prisma generate"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
