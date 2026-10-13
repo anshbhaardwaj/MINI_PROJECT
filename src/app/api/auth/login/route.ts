@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyPassword, createToken } from '@/lib/auth/auth';
 import { loginSchema } from '@/lib/validations';
+import { ensureDbInitialized } from '@/lib/init-db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +17,13 @@ export async function POST(req: NextRequest) {
     }
 
     const { email, password } = parsed.data;
+
+    // Ensure database tables and demo accounts exist
+    try {
+      await ensureDbInitialized();
+    } catch (dbInitErr) {
+      console.error('Database initialization warning:', dbInitErr);
+    }
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -58,8 +66,9 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: 'An error occurred during login' }, { status: 500 });
+    const msg = error?.message || 'An error occurred during login';
+    return NextResponse.json({ error: `Login failed: ${msg}` }, { status: 500 });
   }
 }
