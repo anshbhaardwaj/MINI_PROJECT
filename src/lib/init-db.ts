@@ -23,78 +23,90 @@ export async function ensureDbInitialized() {
     );
 
     if (isPostgres) {
-      try {
-        // Execute DDL safely for PostgreSQL
-        await prisma.$executeRawUnsafe(`
-          CREATE SCHEMA IF NOT EXISTS "public";
+      const ddlStatements = [
+        `CREATE TABLE IF NOT EXISTS "User" (
+            "id" TEXT NOT NULL,
+            "name" TEXT NOT NULL,
+            "email" TEXT NOT NULL,
+            "passwordHash" TEXT NOT NULL,
+            "avatar" TEXT,
+            "role" TEXT NOT NULL DEFAULT 'USER',
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Scan" (
+            "id" TEXT NOT NULL,
+            "userId" TEXT NOT NULL,
+            "type" TEXT NOT NULL,
+            "originalInput" TEXT NOT NULL,
+            "riskScore" INTEGER NOT NULL,
+            "riskLevel" TEXT NOT NULL,
+            "metadata" TEXT NOT NULL,
+            "threatIndicators" TEXT NOT NULL,
+            "recommendations" TEXT NOT NULL,
+            "scamDna" TEXT,
+            "scamCategory" TEXT,
+            "scamNarrative" TEXT,
+            "audienceTarget" TEXT,
+            "approvalStatus" TEXT NOT NULL DEFAULT 'AUTO_ANALYZED',
+            "needsReview" BOOLEAN NOT NULL DEFAULT false,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "Scan_pkey" PRIMARY KEY ("id")
+        )`,
+        `CREATE TABLE IF NOT EXISTS "ScanReview" (
+            "id" TEXT NOT NULL,
+            "scanId" TEXT NOT NULL,
+            "reviewerId" TEXT NOT NULL,
+            "decision" TEXT NOT NULL,
+            "notes" TEXT,
+            "originalRiskScore" INTEGER NOT NULL,
+            "finalClassification" TEXT NOT NULL,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "ScanReview_pkey" PRIMARY KEY ("id")
+        )`,
+        `CREATE TABLE IF NOT EXISTS "UserPreference" (
+            "id" TEXT NOT NULL,
+            "userId" TEXT NOT NULL,
+            "theme" TEXT NOT NULL DEFAULT 'system',
+            "studentSafetyMode" BOOLEAN NOT NULL DEFAULT false,
+            "emailNotifications" BOOLEAN NOT NULL DEFAULT true,
+            "scanAlerts" BOOLEAN NOT NULL DEFAULT true,
+            "weeklyReport" BOOLEAN NOT NULL DEFAULT false,
+            CONSTRAINT "UserPreference_pkey" PRIMARY KEY ("id")
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email")`,
+        `CREATE INDEX IF NOT EXISTS "Scan_userId_idx" ON "Scan"("userId")`,
+        `CREATE INDEX IF NOT EXISTS "Scan_createdAt_idx" ON "Scan"("createdAt")`,
+        `CREATE INDEX IF NOT EXISTS "Scan_riskLevel_idx" ON "Scan"("riskLevel")`,
+        `CREATE INDEX IF NOT EXISTS "Scan_approvalStatus_idx" ON "Scan"("approvalStatus")`,
+        `CREATE INDEX IF NOT EXISTS "Scan_needsReview_idx" ON "Scan"("needsReview")`,
+        `CREATE INDEX IF NOT EXISTS "ScanReview_scanId_idx" ON "ScanReview"("scanId")`,
+        `CREATE INDEX IF NOT EXISTS "ScanReview_reviewerId_idx" ON "ScanReview"("reviewerId")`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS "UserPreference_userId_key" ON "UserPreference"("userId")`,
+      ];
 
-          CREATE TABLE IF NOT EXISTS "User" (
-              "id" TEXT NOT NULL,
-              "name" TEXT NOT NULL,
-              "email" TEXT NOT NULL,
-              "passwordHash" TEXT NOT NULL,
-              "avatar" TEXT,
-              "role" TEXT NOT NULL DEFAULT 'USER',
-              "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              CONSTRAINT "User_pkey" PRIMARY KEY ("id")
-          );
+      for (const stmt of ddlStatements) {
+        try {
+          await prisma.$executeRawUnsafe(stmt);
+        } catch (e: any) {
+          console.warn('DDL statement warning:', e?.message || e);
+        }
+      }
 
-          CREATE TABLE IF NOT EXISTS "Scan" (
-              "id" TEXT NOT NULL,
-              "userId" TEXT NOT NULL,
-              "type" TEXT NOT NULL,
-              "originalInput" TEXT NOT NULL,
-              "riskScore" INTEGER NOT NULL,
-              "riskLevel" TEXT NOT NULL,
-              "metadata" TEXT NOT NULL,
-              "threatIndicators" TEXT NOT NULL,
-              "recommendations" TEXT NOT NULL,
-              "scamDna" TEXT,
-              "scamCategory" TEXT,
-              "scamNarrative" TEXT,
-              "audienceTarget" TEXT,
-              "approvalStatus" TEXT NOT NULL DEFAULT 'AUTO_ANALYZED',
-              "needsReview" BOOLEAN NOT NULL DEFAULT false,
-              "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              CONSTRAINT "Scan_pkey" PRIMARY KEY ("id")
-          );
+      const foreignKeys = [
+        `ALTER TABLE "Scan" ADD CONSTRAINT "Scan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+        `ALTER TABLE "ScanReview" ADD CONSTRAINT "ScanReview_scanId_fkey" FOREIGN KEY ("scanId") REFERENCES "Scan"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+        `ALTER TABLE "ScanReview" ADD CONSTRAINT "ScanReview_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+        `ALTER TABLE "UserPreference" ADD CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      ];
 
-          CREATE TABLE IF NOT EXISTS "ScanReview" (
-              "id" TEXT NOT NULL,
-              "scanId" TEXT NOT NULL,
-              "reviewerId" TEXT NOT NULL,
-              "decision" TEXT NOT NULL,
-              "notes" TEXT,
-              "originalRiskScore" INTEGER NOT NULL,
-              "finalClassification" TEXT NOT NULL,
-              "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              CONSTRAINT "ScanReview_pkey" PRIMARY KEY ("id")
-          );
-
-          CREATE TABLE IF NOT EXISTS "UserPreference" (
-              "id" TEXT NOT NULL,
-              "userId" TEXT NOT NULL,
-              "theme" TEXT NOT NULL DEFAULT 'system',
-              "studentSafetyMode" BOOLEAN NOT NULL DEFAULT false,
-              "emailNotifications" BOOLEAN NOT NULL DEFAULT true,
-              "scanAlerts" BOOLEAN NOT NULL DEFAULT true,
-              "weeklyReport" BOOLEAN NOT NULL DEFAULT false,
-              CONSTRAINT "UserPreference_pkey" PRIMARY KEY ("id")
-          );
-
-          CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
-          CREATE INDEX IF NOT EXISTS "Scan_userId_idx" ON "Scan"("userId");
-          CREATE INDEX IF NOT EXISTS "Scan_createdAt_idx" ON "Scan"("createdAt");
-          CREATE INDEX IF NOT EXISTS "Scan_riskLevel_idx" ON "Scan"("riskLevel");
-          CREATE INDEX IF NOT EXISTS "Scan_approvalStatus_idx" ON "Scan"("approvalStatus");
-          CREATE INDEX IF NOT EXISTS "Scan_needsReview_idx" ON "Scan"("needsReview");
-          CREATE INDEX IF NOT EXISTS "ScanReview_scanId_idx" ON "ScanReview"("scanId");
-          CREATE INDEX IF NOT EXISTS "ScanReview_reviewerId_idx" ON "ScanReview"("reviewerId");
-          CREATE UNIQUE INDEX IF NOT EXISTS "UserPreference_userId_key" ON "UserPreference"("userId");
-        `);
-      } catch (ddlError) {
-        console.warn('DDL execution note (tables may already exist):', ddlError);
+      for (const fk of foreignKeys) {
+        try {
+          await prisma.$executeRawUnsafe(fk);
+        } catch {
+          // Foreign key may already exist
+        }
       }
     }
 
